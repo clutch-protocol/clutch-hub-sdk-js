@@ -17,7 +17,7 @@ export class ClutchHubSdk {
     this.apiUrl = apiUrl;
   }
 
-  buildRideRequestTx(args: RideRequestArgs, from: string, nonce: number): Uint8Array {
+  createUnsignedRideRequest(args: RideRequestArgs, from: string, nonce: number): Uint8Array {
     const callData = {
       function_call_type: 'RideRequest',
       arguments: {
@@ -30,7 +30,7 @@ export class ClutchHubSdk {
     return rlp.encode([from, nonce, JSON.stringify(callData)]);
   }
 
-  async signTx(raw: Uint8Array, privateKey: string): Promise<Signature> {
+  async signTransaction(raw: Uint8Array, privateKey: string): Promise<Signature> {
     const hash = keccak_256(raw);
     const sig = await secp.signAsync(hash, privateKey);
     return {
@@ -40,7 +40,7 @@ export class ClutchHubSdk {
     };
   }
 
-  async sendTransaction(tx: SignedTx): Promise<any> {
+  async submitTransaction(tx: SignedTx): Promise<any> {
     // Send to /send-transaction or GraphQL mutation as appropriate
     const resp = await axios.post(`${this.apiUrl}/send-transaction`, {
       from: tx.from,
