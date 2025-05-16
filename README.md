@@ -23,9 +23,9 @@ npm install clutch-hub-sdk-js
 
 ## Basic Usage
 ```js
-import { ClutchSdk } from 'clutch-hub-sdk-js';
+import { ClutchHubSdk } from 'clutch-hub-sdk-js';
 
-const sdk = new ClutchSdk('https://your-hub-api-url');
+const sdk = new ClutchHubSdk('https://your-hub-api-url');
 
 // 1. Fetch the next nonce for the user
 const nonce = await sdk.getNextNonce(userAddress);

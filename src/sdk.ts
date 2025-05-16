@@ -10,7 +10,7 @@ function toHex(uint8: Uint8Array): string {
     .join('');
 }
 
-export class ClutchSdk {
+export class ClutchHubSdk {
   private apiUrl: string;
 
   constructor(apiUrl: string) {
