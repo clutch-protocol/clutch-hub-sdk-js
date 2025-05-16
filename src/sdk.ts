@@ -12,15 +12,42 @@ function toHex(uint8: Uint8Array): string {
 
 export class ClutchHubSdk {
   private apiUrl: string;
+  private publicKey: string;
+  private token: string | null = null;
+  private tokenExpireTime: number = 0;
 
-  constructor(apiUrl: string) {
+  constructor(apiUrl: string, publicKey: string) {
     this.apiUrl = apiUrl;
+    this.publicKey = publicKey;
+  }
+
+  private async ensureAuth() {
+    const now = Date.now();
+    if (!this.token || now > this.tokenExpireTime) {
+      const mutation = `
+        mutation GenerateToken($publicKey: String!) {
+          generateToken(publicKey: $publicKey) {
+            token
+            expiresAt
+          }
+        }
+      `;
+      const resp = await axios.post(
+        `${this.apiUrl}/graphql`,
+        { query: mutation, variables: { publicKey: this.publicKey } }
+      );
+      if (resp.data.errors) throw new Error(resp.data.errors.map((e: { message: string }) => e.message).join('\n'));
+      const { token, expiresAt } = resp.data.data.generateToken;
+      this.token = token;
+      this.tokenExpireTime = expiresAt * 1000;
+    }
   }
 
   /**
    * Fetches the unsigned ride request payload from the GraphQL API.
    */
   async createUnsignedRideRequest(args: RideRequestArgs): Promise<any> {
+    await this.ensureAuth();
     const mutation = `
       mutation CreateUnsignedRideRequest($pickupLatitude: Float!, $pickupLongitude: Float!, $dropoffLatitude: Float!, $dropoffLongitude: Float!, $fare: Int!) {
         createUnsignedRideRequest(
@@ -32,9 +59,6 @@ export class ClutchHubSdk {
         )
       }
     `;
-    
-    console.log(args.pickup);
-    
     const pickup = {
       latitude: (args.pickup as any).latitude ?? (args.pickup as any).lat,
       longitude: (args.pickup as any).longitude ?? (args.pickup as any).lng,
@@ -52,17 +76,18 @@ export class ClutchHubSdk {
     };
     const resp = await axios.post(
       `${this.apiUrl}/graphql`,
-      { query: mutation, variables }
+      { query: mutation, variables },
+      { headers: { Authorization: `Bearer ${this.token}` } }
     );
 
     if (resp.data.errors) {
       console.error('GraphQL errors:', resp.data.errors);
       throw new Error(resp.data.errors.map((e: { message: string }) => e.message).join('\n'));
     }
-    if (!resp.data.data || !resp.data.data.create_unsigned_ride_request) {
-      throw new Error('No data returned from create_unsigned_ride_request');
+    if (!resp.data.data || !resp.data.data.createUnsignedRideRequest) {
+      throw new Error('No data returned from createUnsignedRideRequest');
     }
-    return resp.data.data.create_unsigned_ride_request;
+    return resp.data.data.createUnsignedRideRequest;
   }
 
   async signTransaction(raw: Uint8Array, privateKey: string): Promise<Signature> {
