@@ -17,17 +17,33 @@ export class ClutchHubSdk {
     this.apiUrl = apiUrl;
   }
 
-  createUnsignedRideRequest(args: RideRequestArgs, from: string, nonce: number): Uint8Array {
-    const callData = {
-      function_call_type: 'RideRequest',
-      arguments: {
-        fare: args.fare,
-        pickup_location: args.pickup,
-        dropoff_location: args.dropoff,
-      },
+  /**
+   * Fetches the unsigned ride request payload from the GraphQL API.
+   */
+  async createUnsignedRideRequest(args: RideRequestArgs): Promise<any> {
+    const mutation = `
+      mutation CreateUnsignedRideRequest($pickup_latitude: Float!, $pickup_longitude: Float!, $dropoff_latitude: Float!, $dropoff_longitude: Float!, $fare: Int!) {
+        create_unsigned_ride_request(
+          pickup_latitude: $pickup_latitude,
+          pickup_longitude: $pickup_longitude,
+          dropoff_latitude: $dropoff_latitude,
+          dropoff_longitude: $dropoff_longitude,
+          fare: $fare
+        )
+      }
+    `;
+    const variables = {
+      pickup_latitude: args.pickup.latitude,
+      pickup_longitude: args.pickup.longitude,
+      dropoff_latitude: args.dropoff.latitude,
+      dropoff_longitude: args.dropoff.longitude,
+      fare: args.fare,
     };
-    // RLP encode [from, nonce, callData as JSON string]
-    return rlp.encode([from, nonce, JSON.stringify(callData)]);
+    const resp = await axios.post(
+      `${this.apiUrl}/graphql`,
+      { query: mutation, variables }
+    );
+    return resp.data.data.create_unsigned_ride_request;
   }
 
   async signTransaction(raw: Uint8Array, privateKey: string): Promise<Signature> {
