@@ -35,12 +35,19 @@ export class ClutchHubSdk {
     
     console.log(args.pickup);
     
-
+    const pickup = {
+      latitude: (args.pickup as any).latitude ?? (args.pickup as any).lat,
+      longitude: (args.pickup as any).longitude ?? (args.pickup as any).lng,
+    };
+    const dropoff = {
+      latitude: (args.dropoff as any).latitude ?? (args.dropoff as any).lat,
+      longitude: (args.dropoff as any).longitude ?? (args.dropoff as any).lng,
+    };
     const variables = {
-      pickupLatitude: args.pickup.latitude,
-      pickupLongitude: args.pickup.longitude,
-      dropoffLatitude: args.dropoff.latitude,
-      dropoffLongitude: args.dropoff.longitude,
+      pickupLatitude: pickup.latitude,
+      pickupLongitude: pickup.longitude,
+      dropoffLatitude: dropoff.latitude,
+      dropoffLongitude: dropoff.longitude,
       fare: args.fare,
     };
     const resp = await axios.post(
