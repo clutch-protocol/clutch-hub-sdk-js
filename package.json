@@ -9,7 +9,7 @@
     "prepare": "npm run build"
   },
   "keywords": ["blockchain", "sdk", "clutch", "hub-api"],
-  "author": "",
+  "author": "Mehran Mazhar",
   "license": "MIT",
   "dependencies": {
     "@noble/secp256k1": "^2.0.0",
