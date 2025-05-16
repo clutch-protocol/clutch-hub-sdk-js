@@ -17,11 +17,6 @@ export class ClutchHubSdk {
     this.apiUrl = apiUrl;
   }
 
-  async getNextNonce(address: string): Promise<number> {
-    const resp = await axios.get(`${this.apiUrl}/nonce/${address}`);
-    return resp.data.nonce;
-  }
-
   buildRideRequestTx(args: RideRequestArgs, from: string, nonce: number): Uint8Array {
     const callData = {
       function_call_type: 'RideRequest',
