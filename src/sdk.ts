@@ -22,27 +22,39 @@ export class ClutchHubSdk {
    */
   async createUnsignedRideRequest(args: RideRequestArgs): Promise<any> {
     const mutation = `
-      mutation CreateUnsignedRideRequest($pickup_latitude: Float!, $pickup_longitude: Float!, $dropoff_latitude: Float!, $dropoff_longitude: Float!, $fare: Int!) {
-        create_unsigned_ride_request(
-          pickup_latitude: $pickup_latitude,
-          pickup_longitude: $pickup_longitude,
-          dropoff_latitude: $dropoff_latitude,
-          dropoff_longitude: $dropoff_longitude,
+      mutation CreateUnsignedRideRequest($pickupLatitude: Float!, $pickupLongitude: Float!, $dropoffLatitude: Float!, $dropoffLongitude: Float!, $fare: Int!) {
+        createUnsignedRideRequest(
+          pickupLatitude: $pickupLatitude,
+          pickupLongitude: $pickupLongitude,
+          dropoffLatitude: $dropoffLatitude,
+          dropoffLongitude: $dropoffLongitude,
           fare: $fare
         )
       }
     `;
+    
+    console.log(args.pickup);
+    
+
     const variables = {
-      pickup_latitude: args.pickup.latitude,
-      pickup_longitude: args.pickup.longitude,
-      dropoff_latitude: args.dropoff.latitude,
-      dropoff_longitude: args.dropoff.longitude,
+      pickupLatitude: args.pickup.latitude,
+      pickupLongitude: args.pickup.longitude,
+      dropoffLatitude: args.dropoff.latitude,
+      dropoffLongitude: args.dropoff.longitude,
       fare: args.fare,
     };
     const resp = await axios.post(
       `${this.apiUrl}/graphql`,
       { query: mutation, variables }
     );
+
+    if (resp.data.errors) {
+      console.error('GraphQL errors:', resp.data.errors);
+      throw new Error(resp.data.errors.map((e: { message: string }) => e.message).join('\n'));
+    }
+    if (!resp.data.data || !resp.data.data.create_unsigned_ride_request) {
+      throw new Error('No data returned from create_unsigned_ride_request');
+    }
     return resp.data.data.create_unsigned_ride_request;
   }
 
