@@ -37,11 +37,11 @@ export class ClutchHubSdk {
 
   async signTx(raw: Uint8Array, privateKey: string): Promise<Signature> {
     const hash = keccak_256(raw);
-    const [sig, rec] = await secp.signAsync(hash, privateKey, { recovered: true });
+    const sig = await secp.signAsync(hash, privateKey);
     return {
-      r: toHex(sig.slice(0, 32)),
-      s: toHex(sig.slice(32)),
-      v: rec,
+      r: sig.r.toString().padStart(64, '0'),
+      s: sig.s.toString().padStart(64, '0'),
+      v: typeof sig.recovery === 'number' ? sig.recovery : 0,
     };
   }
 
