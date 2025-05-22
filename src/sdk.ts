@@ -1,4 +1,9 @@
 import axios from 'axios';
+import { Buffer } from 'buffer';
+declare global {
+  interface Window { Buffer: typeof Buffer }
+}
+if (typeof window !== 'undefined' && !window.Buffer) window.Buffer = Buffer;
 import { keccak_256 } from '@noble/hashes/sha3';
 import * as rlp from 'rlp';
 import * as secp from '@noble/secp256k1';
@@ -90,14 +95,16 @@ export class ClutchHubSdk {
     return resp.data.data.createUnsignedRideRequest;
   }
 
-  async signTransaction(raw: Uint8Array, privateKey: string): Promise<Signature> {
-    const hash = keccak_256(raw);
+  async signTransaction(unsignedTx: { from: string, nonce: number, data: any }, privateKey: string): Promise<Signature> {
+    // RLP encode [from, nonce, callData as JSON string]
+    const callData = JSON.stringify(unsignedTx.data);
+    const toSign = rlp.encode([unsignedTx.from, unsignedTx.nonce, callData]);
+    const hash = keccak_256(toSign);
     const sig = await secp.signAsync(hash, privateKey);
-    return {
-      r: sig.r.toString().padStart(64, '0'),
-      s: sig.s.toString().padStart(64, '0'),
-      v: typeof sig.recovery === 'number' ? sig.recovery : 0,
-    };
+    const r = sig.r.toString().padStart(64, '0');
+    const s = sig.s.toString().padStart(64, '0');
+    const v = (typeof sig.recovery === 'number' ? sig.recovery : 0) + 27;
+    return { r, s, v };
   }
 
   async submitTransaction(tx: SignedTx): Promise<any> {
