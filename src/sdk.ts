@@ -15,6 +15,10 @@ function toHex(uint8: Uint8Array): string {
     .join('');
 }
 
+function ensure0x(str: string) {
+  return str.startsWith('0x') ? str : '0x' + str;
+}
+
 export class ClutchHubSdk {
   private apiUrl: string;
   private publicKey: string;
@@ -95,26 +99,118 @@ export class ClutchHubSdk {
     return resp.data.data.createUnsignedRideRequest;
   }
 
+  // Helper: RLP-encode the FunctionCall according to Rust definitions
+  private encodeFunctionCall(data: any): Buffer {
+    const type = data.function_call_type || data.type;
+
+    switch (type) {
+      case 'RideRequest': {
+        const args = data.arguments || data;
+        const { pickup_location, dropoff_location, fare } = args;
+        if (!pickup_location || !dropoff_location || fare === undefined) {
+          throw new Error('Invalid RideRequest arguments');
+        }
+        
+        // Use same encoding as Rust - encode floats as their bit representation
+        const pickupLatBits = this.float64ToBits(pickup_location.latitude);
+        const pickupLongBits = this.float64ToBits(pickup_location.longitude);
+        const dropoffLatBits = this.float64ToBits(dropoff_location.latitude);
+        const dropoffLongBits = this.float64ToBits(dropoff_location.longitude);
+        
+        // Create the nested structures exactly as Rust expects
+        
+        // 1. Create pickup coordinates [latitude_bits, longitude_bits]
+        const pickupCoordinates = [pickupLatBits, pickupLongBits];
+        
+        // 2. Create dropoff coordinates [latitude_bits, longitude_bits]
+        const dropoffCoordinates = [dropoffLatBits, dropoffLongBits];
+        
+        // 3. Create RideRequest args list [pickup, dropoff, fare]
+        const rideRequestArgs = [pickupCoordinates, dropoffCoordinates, fare];
+        
+        // 4. Wrap in FunctionCall with tag 1 (RideRequest): [tag, args]
+        // Note: in Rust this is a list of two items in RLP
+        return Buffer.from(rlp.encode([1, rideRequestArgs]));
+      }
+      // TODO: handle other function_call types here
+      default:
+        throw new Error('Unsupported FunctionCall type for RLP encoding: ' + type);
+    }
+  }
+
+  // Convert JavaScript float64 to same bit representation as Rust's f64.to_bits()
+  private float64ToBits(value: number): string {
+    const buffer = new ArrayBuffer(8);
+    const view = new DataView(buffer);
+    view.setFloat64(0, value, false); // Use big-endian for consistency
+    
+    // Get bytes as two 32-bit integers
+    const highBits = view.getUint32(0, false);
+    const lowBits = view.getUint32(4, false);
+    
+    // Combine using standard JS operations without BigInt
+    // First convert to hex strings
+    const highHex = highBits.toString(16).padStart(8, '0');
+    const lowHex = lowBits.toString(16).padStart(8, '0');
+    
+    // Combined hex value
+    return highHex + lowHex;
+  }
+
   async signTransaction(unsignedTx: { from: string, nonce: number, data: any }, privateKey: string): Promise<Signature & { rawTransaction: string }> {
-    // RLP encode [from, nonce, callData as JSON string]
-    const callData = JSON.stringify(unsignedTx.data);
-    const toSign = rlp.encode([unsignedTx.from, unsignedTx.nonce, callData]);
-    const hash = keccak_256(toSign);
-    const sig = await secp.signAsync(hash, privateKey);
-    const r = sig.r.toString().padStart(64, '0');
-    const s = sig.s.toString().padStart(64, '0');
-    const v = (typeof sig.recovery === 'number' ? sig.recovery : 0) + 27;
-    // RLP encode the signed transaction: [from, nonce, callData, r, s, v]
-    const signedRlp = rlp.encode([
-      unsignedTx.from,
+    // 1. RLP-encode the data field
+    const callDataRlp = this.encodeFunctionCall(unsignedTx.data);
+
+    // 2. RLP-encode the unsigned transaction for hashing: [from, nonce, callDataRlp]
+    const fromNoPrefix = unsignedTx.from.startsWith('0x') ? unsignedTx.from.slice(2) : unsignedTx.from;
+    
+    const data = [
+      fromNoPrefix,
       unsignedTx.nonce,
-      callData,
+      callDataRlp,
+    ];
+    console.log('data for hashing:', data);
+
+    const unsignedRlp = rlp.encode(data);
+    const hashBytes = keccak_256(unsignedRlp);
+
+    // Hash without '0x' prefix for consistency with Rust
+    const rawHash = Buffer.from(hashBytes).toString('hex');
+    
+    // 3. Sign the hash
+    const sig = await secp.signAsync(hashBytes, privateKey);
+
+    // 4. RLP-encode the full transaction
+    // Format signature components correctly
+    const r = sig.r.toString(16).padStart(64, '0');
+    const s = sig.s.toString(16).padStart(64, '0');
+    const v = (typeof sig.recovery === 'number' ? sig.recovery : 0) + 27;
+    const hash = rawHash; // No '0x' prefix in RLP
+    
+    // Construct TX for RLP encoding
+    const tx = [
+      fromNoPrefix,
+      unsignedTx.nonce,
       r,
       s,
-      v
-    ]);
+      v,
+      hash,
+      // Important: callDataRlp is already RLP encoded, but it's a Buffer
+      // We need to pass the raw value not wrapped in another RLP encoding
+      [...callDataRlp]  // Convert Buffer to array so rlp.encode treats it properly
+    ];
+    
+    console.log('tx components for RLP:', JSON.stringify(tx, null, 2));
+    const signedRlp = rlp.encode(tx);
+
+    // For return values, use '0x' prefix as expected by consumers
     const rawTransaction = '0x' + Buffer.from(signedRlp).toString('hex');
-    return { r, s, v, rawTransaction };
+    return { 
+      r: ensure0x(r), 
+      s: ensure0x(s), 
+      v, 
+      rawTransaction 
+    };
   }
 
   async submitTransaction(tx: SignedTx): Promise<any> {
