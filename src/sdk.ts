@@ -95,7 +95,7 @@ export class ClutchHubSdk {
     return resp.data.data.createUnsignedRideRequest;
   }
 
-  async signTransaction(unsignedTx: { from: string, nonce: number, data: any }, privateKey: string): Promise<Signature> {
+  async signTransaction(unsignedTx: { from: string, nonce: number, data: any }, privateKey: string): Promise<Signature & { rawTransaction: string }> {
     // RLP encode [from, nonce, callData as JSON string]
     const callData = JSON.stringify(unsignedTx.data);
     const toSign = rlp.encode([unsignedTx.from, unsignedTx.nonce, callData]);
@@ -104,7 +104,17 @@ export class ClutchHubSdk {
     const r = sig.r.toString().padStart(64, '0');
     const s = sig.s.toString().padStart(64, '0');
     const v = (typeof sig.recovery === 'number' ? sig.recovery : 0) + 27;
-    return { r, s, v };
+    // RLP encode the signed transaction: [from, nonce, callData, r, s, v]
+    const signedRlp = rlp.encode([
+      unsignedTx.from,
+      unsignedTx.nonce,
+      callData,
+      r,
+      s,
+      v
+    ]);
+    const rawTransaction = '0x' + Buffer.from(signedRlp).toString('hex');
+    return { r, s, v, rawTransaction };
   }
 
   async submitTransaction(tx: SignedTx): Promise<any> {
