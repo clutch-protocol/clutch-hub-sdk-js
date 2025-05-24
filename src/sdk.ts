@@ -113,6 +113,21 @@ export class ClutchHubSdk {
     return resp.data.data.createUnsignedRideRequest;
   }
 
+  // Helper: Convert JavaScript float64 to a big-endian uint64 value for RLP encoding
+  private float64ToUint64(value: number): bigint {
+    // Use DataView to get the raw bits
+    const buffer = new ArrayBuffer(8);
+    const view = new DataView(buffer);
+    view.setFloat64(0, value, false); // false = big-endian
+    
+    // Combine the bits into a single BigInt value
+    const highBits = BigInt(view.getUint32(0, false));
+    const lowBits = BigInt(view.getUint32(4, false));
+    
+    // Shift high bits and combine with low bits - using BigInt constructor for compatibility
+    return (highBits << BigInt(32)) | lowBits;
+  }
+
   // Helper: RLP-encode the FunctionCall according to Rust definitions
   private encodeFunctionCall(data: any): Buffer {
     const type = data.function_call_type || data.type;
@@ -125,15 +140,18 @@ export class ClutchHubSdk {
           throw new Error('Invalid RideRequest arguments: Missing required fields.');
         }
 
-        const pickupLatBits = utils.float64ToBits(pickup_location.latitude);
-        const pickupLongBits = utils.float64ToBits(pickup_location.longitude);
-        const dropoffLatBits = utils.float64ToBits(dropoff_location.latitude);
-        const dropoffLongBits = utils.float64ToBits(dropoff_location.longitude);
+        // Convert floats to u64 bits exactly as Rust does
+        const pickupLatBits = this.float64ToUint64(pickup_location.latitude);
+        const pickupLongBits = this.float64ToUint64(pickup_location.longitude);
+        const dropoffLatBits = this.float64ToUint64(dropoff_location.latitude);
+        const dropoffLongBits = this.float64ToUint64(dropoff_location.longitude);
 
+        // Create the same structure as Rust: coordinates are [lat_bits, long_bits]
         const pickupCoordinates = [pickupLatBits, pickupLongBits];
         const dropoffCoordinates = [dropoffLatBits, dropoffLongBits];
         const rideRequestArgs = [pickupCoordinates, dropoffCoordinates, fare];
 
+        // Encode with tag 1 for RideRequest
         return Buffer.from(rlp.encode([1, rideRequestArgs]));
       }
       // TODO: handle other function_call types here
@@ -171,7 +189,8 @@ export class ClutchHubSdk {
     const v = (typeof sig.recovery === 'number' ? sig.recovery : 0) + 27;
     const hash = rawHash; // No '0x' prefix in RLP
     
-    // Construct TX for RLP encoding
+    // Construct TX for RLP encoding - must match Rust Transaction encoding
+    // Rust order is: [from, nonce, signature_r, signature_s, signature_v, hash, data]
     const tx = [
       fromNoPrefix,
       unsignedTx.nonce,
@@ -180,7 +199,7 @@ export class ClutchHubSdk {
       v,
       hash,
       // Important: callDataRlp is already RLP encoded, but it's a Buffer
-      // We need to pass the raw value not wrapped in another RLP encoding
+      // We need to pass the raw bytes, not wrapped in another RLP encoding
       [...callDataRlp]  // Convert Buffer to array so rlp.encode treats it properly
     ];
     
@@ -197,16 +216,35 @@ export class ClutchHubSdk {
   }
 
   async submitTransaction(tx: SignedTx): Promise<any> {
-    // Send to /send-transaction or GraphQL mutation as appropriate
-    const resp = await axios.post(`${this.apiUrl}/send-transaction`, {
-      from: tx.from,
-      nonce: tx.nonce,
-      payload: utils.toHex(tx.payload),
-      r: tx.r,
-      s: tx.s,
-      v: tx.v,
-    });
-    return resp.data;
+    await this.ensureAuth();
+    
+    // Convert the raw transaction to hex string if it's not already
+    const rawTxHex = typeof tx.payload === 'string' 
+      ? tx.payload 
+      : ('0x' + Buffer.from(tx.payload).toString('hex'));
+    
+    // Send to the GraphQL mutation for send_raw_transaction
+    const mutation = `
+      mutation SendRawTransaction($raw_transaction: String!) {
+        sendRawTransaction(rawTransaction: $raw_transaction)
+      }
+    `;
+    
+    const resp = await axios.post(
+      `${this.apiUrl}/graphql`,
+      { 
+        query: mutation, 
+        variables: { raw_transaction: rawTxHex } 
+      },
+      { headers: { Authorization: `Bearer ${this.token}` } }
+    );
+
+    if (resp.data.errors) {
+      console.error('GraphQL errors:', resp.data.errors);
+      throw new Error(resp.data.errors.map((e: { message: string }) => e.message).join('\n'));
+    }
+    
+    return resp.data.data.send_raw_transaction;
   }
 
   // Standardize error handling in API calls
