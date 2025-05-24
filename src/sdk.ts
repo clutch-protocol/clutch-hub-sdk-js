@@ -9,15 +9,29 @@ import * as rlp from 'rlp';
 import * as secp from '@noble/secp256k1';
 import { RideRequestArgs, SignedTx, Signature } from './types';
 
-function toHex(uint8: Uint8Array): string {
-  return Array.from(uint8)
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
-}
+// Move utility functions to a separate section or file
+const utils = {
+  toHex: (uint8: Uint8Array): string => {
+    return Array.from(uint8)
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+  },
 
-function ensure0x(str: string) {
-  return str.startsWith('0x') ? str : '0x' + str;
-}
+  ensure0x: (str: string): string => {
+    return str.startsWith('0x') ? str : '0x' + str;
+  },
+
+  float64ToBits: (value: number): string => {
+    const buffer = new ArrayBuffer(8);
+    const view = new DataView(buffer);
+    view.setFloat64(0, value, false);
+    const highBits = view.getUint32(0, false);
+    const lowBits = view.getUint32(4, false);
+    const highHex = highBits.toString(16).padStart(8, '0');
+    const lowHex = lowBits.toString(16).padStart(8, '0');
+    return highHex + lowHex;
+  }
+};
 
 export class ClutchHubSdk {
   private apiUrl: string;
@@ -108,53 +122,24 @@ export class ClutchHubSdk {
         const args = data.arguments || data;
         const { pickup_location, dropoff_location, fare } = args;
         if (!pickup_location || !dropoff_location || fare === undefined) {
-          throw new Error('Invalid RideRequest arguments');
+          throw new Error('Invalid RideRequest arguments: Missing required fields.');
         }
-        
-        // Use same encoding as Rust - encode floats as their bit representation
-        const pickupLatBits = this.float64ToBits(pickup_location.latitude);
-        const pickupLongBits = this.float64ToBits(pickup_location.longitude);
-        const dropoffLatBits = this.float64ToBits(dropoff_location.latitude);
-        const dropoffLongBits = this.float64ToBits(dropoff_location.longitude);
-        
-        // Create the nested structures exactly as Rust expects
-        
-        // 1. Create pickup coordinates [latitude_bits, longitude_bits]
+
+        const pickupLatBits = utils.float64ToBits(pickup_location.latitude);
+        const pickupLongBits = utils.float64ToBits(pickup_location.longitude);
+        const dropoffLatBits = utils.float64ToBits(dropoff_location.latitude);
+        const dropoffLongBits = utils.float64ToBits(dropoff_location.longitude);
+
         const pickupCoordinates = [pickupLatBits, pickupLongBits];
-        
-        // 2. Create dropoff coordinates [latitude_bits, longitude_bits]
         const dropoffCoordinates = [dropoffLatBits, dropoffLongBits];
-        
-        // 3. Create RideRequest args list [pickup, dropoff, fare]
         const rideRequestArgs = [pickupCoordinates, dropoffCoordinates, fare];
-        
-        // 4. Wrap in FunctionCall with tag 1 (RideRequest): [tag, args]
-        // Note: in Rust this is a list of two items in RLP
+
         return Buffer.from(rlp.encode([1, rideRequestArgs]));
       }
       // TODO: handle other function_call types here
       default:
-        throw new Error('Unsupported FunctionCall type for RLP encoding: ' + type);
+        throw new Error(`Unsupported FunctionCall type for RLP encoding: ${type}`);
     }
-  }
-
-  // Convert JavaScript float64 to same bit representation as Rust's f64.to_bits()
-  private float64ToBits(value: number): string {
-    const buffer = new ArrayBuffer(8);
-    const view = new DataView(buffer);
-    view.setFloat64(0, value, false); // Use big-endian for consistency
-    
-    // Get bytes as two 32-bit integers
-    const highBits = view.getUint32(0, false);
-    const lowBits = view.getUint32(4, false);
-    
-    // Combine using standard JS operations without BigInt
-    // First convert to hex strings
-    const highHex = highBits.toString(16).padStart(8, '0');
-    const lowHex = lowBits.toString(16).padStart(8, '0');
-    
-    // Combined hex value
-    return highHex + lowHex;
   }
 
   async signTransaction(unsignedTx: { from: string, nonce: number, data: any }, privateKey: string): Promise<Signature & { rawTransaction: string }> {
@@ -169,7 +154,6 @@ export class ClutchHubSdk {
       unsignedTx.nonce,
       callDataRlp,
     ];
-    console.log('data for hashing:', data);
 
     const unsignedRlp = rlp.encode(data);
     const hashBytes = keccak_256(unsignedRlp);
@@ -200,14 +184,13 @@ export class ClutchHubSdk {
       [...callDataRlp]  // Convert Buffer to array so rlp.encode treats it properly
     ];
     
-    console.log('tx components for RLP:', JSON.stringify(tx, null, 2));
     const signedRlp = rlp.encode(tx);
 
     // For return values, use '0x' prefix as expected by consumers
     const rawTransaction = '0x' + Buffer.from(signedRlp).toString('hex');
     return { 
-      r: ensure0x(r), 
-      s: ensure0x(s), 
+      r: utils.ensure0x(r), 
+      s: utils.ensure0x(s), 
       v, 
       rawTransaction 
     };
@@ -218,11 +201,28 @@ export class ClutchHubSdk {
     const resp = await axios.post(`${this.apiUrl}/send-transaction`, {
       from: tx.from,
       nonce: tx.nonce,
-      payload: toHex(tx.payload),
+      payload: utils.toHex(tx.payload),
       r: tx.r,
       s: tx.s,
       v: tx.v,
     });
     return resp.data;
+  }
+
+  // Standardize error handling in API calls
+  private async handleApiCall<T>(query: string, variables: any, headers?: any): Promise<T> {
+    try {
+      const resp = await axios.post(`${this.apiUrl}/graphql`, { query, variables }, { headers });
+      if (resp.data.errors) {
+        throw new Error(resp.data.errors.map((e: { message: string }) => e.message).join('\n'));
+      }
+      if (!resp.data.data) {
+        throw new Error('No data returned from the API.');
+      }
+      return resp.data.data;
+    } catch (error) {
+      console.error('API call failed:', error);
+      throw error;
+    }
   }
 } 
