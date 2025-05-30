@@ -120,15 +120,15 @@ export class ClutchHubSdk {
     unsignedTx: UnsignedTransaction,
     privateKey: string
   ): Promise<Signature & { rawTransaction: string }> {
-    // Build the function call nested array for RLP
-    const functionCallArray = this.encodeFunctionCall(unsignedTx.data);
+    // Build the RLP nested array for the function call
+    const callDataArray = this.encodeFunctionCall(unsignedTx.data);
     const fromNoPrefix = unsignedTx.from.replace(/^0x/, '');
 
     // RLP-encode unsigned payload and compute its hash
     const unsignedPayload = rlp.encode([
       fromNoPrefix,
       unsignedTx.nonce,
-      functionCallArray,
+      callDataArray,
     ]);
     const hashBytes = keccak_256(unsignedPayload);
     const rawHashHex = Buffer.from(hashBytes).toString('hex');
@@ -144,7 +144,7 @@ export class ClutchHubSdk {
       signature.s.replace(/^0x/, ''),
       signature.v,
       rawHashHex,
-      functionCallArray,
+      callDataArray,
     ]);
 
     return {
@@ -191,7 +191,7 @@ export class ClutchHubSdk {
   }
 
   /**
-   * RLP-encodes a function call according to Rust definitions.
+   * Builds the nested array representing the function call for RLP encoding.
    */
   private encodeFunctionCall(data: any): any[] {
     const type = data.function_call_type || data.type;
@@ -207,7 +207,7 @@ export class ClutchHubSdk {
           [dropoffLatBits, dropoffLngBits],
           fare,
         ];
-        // Tag 1 for RideRequest followed by its arguments
+        // Return the array: [tag, arguments]
         return [1, args];
       }
       default:
