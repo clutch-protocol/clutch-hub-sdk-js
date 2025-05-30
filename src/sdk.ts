@@ -122,11 +122,10 @@ export class ClutchHubSdk {
   ): Promise<Signature & { rawTransaction: string }> {
     // Build the RLP nested array for the function call
     const callDataArray = this.encodeFunctionCall(unsignedTx.data);
-    const fromNoPrefix = unsignedTx.from.replace(/^0x/, '');
 
     // RLP-encode unsigned payload and compute its hash
     const unsignedPayload = rlp.encode([
-      fromNoPrefix,
+      unsignedTx.from,
       unsignedTx.nonce,
       callDataArray,
     ]);
@@ -138,7 +137,7 @@ export class ClutchHubSdk {
 
     // RLP-encode the full signed transaction
     const fullPayload = rlp.encode([
-      fromNoPrefix,
+      unsignedTx.from,
       unsignedTx.nonce,
       signature.r.replace(/^0x/, ''),
       signature.s.replace(/^0x/, ''),
