@@ -124,8 +124,10 @@ export class ClutchHubSdk {
     const callDataArray = this.encodeFunctionCall(unsignedTx.data);
 
     // RLP-encode unsigned transaction [from, nonce, data]
+    // Ensure from field is properly encoded as string (remove 0x prefix for consistency)
+    const fromForUnsigned = unsignedTx.from.replace(/^0x/, '');
     const unsignedPayload = rlp.encode([
-      unsignedTx.from,
+      fromForUnsigned,
       unsignedTx.nonce,
       callDataArray
     ]);
@@ -138,8 +140,10 @@ export class ClutchHubSdk {
     const sNo0x = signature.s.replace(/^0x/, '');
 
     // RLP-encode full signed transaction to match Rust: [from, nonce, r, s, v, hash, data]
+    // Ensure from field is properly encoded as string (remove 0x prefix for consistency)
+    const fromNo0x = unsignedTx.from.replace(/^0x/, '');
     const fullPayload = rlp.encode([
-      unsignedTx.from,
+      fromNo0x,
       unsignedTx.nonce,
       rNo0x,
       sNo0x,
