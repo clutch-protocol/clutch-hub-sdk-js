@@ -120,35 +120,37 @@ export class ClutchHubSdk {
     unsignedTx: UnsignedTransaction,
     privateKey: string
   ): Promise<Signature & { rawTransaction: string }> {
-    // Build the RLP nested array for the function call
+    // Encode the function call into a nested array for RLP
     const callDataArray = this.encodeFunctionCall(unsignedTx.data);
 
-    // RLP-encode unsigned payload and compute its hash
+    // RLP-encode unsigned transaction [from, nonce, data]
     const unsignedPayload = rlp.encode([
       unsignedTx.from,
       unsignedTx.nonce,
-      callDataArray,
+      callDataArray
     ]);
     const hashBytes = keccak_256(unsignedPayload);
     const rawHashHex = Buffer.from(hashBytes).toString('hex');
 
     // Sign the transaction hash
     const signature = await this.signHash(rawHashHex, privateKey);
+    const rNo0x = signature.r.replace(/^0x/, '');
+    const sNo0x = signature.s.replace(/^0x/, '');
 
-    // RLP-encode the full signed transaction
+    // RLP-encode full signed transaction to match Rust: [from, nonce, r, s, v, hash, data]
     const fullPayload = rlp.encode([
       unsignedTx.from,
       unsignedTx.nonce,
-      signature.r.replace(/^0x/, ''),
-      signature.s.replace(/^0x/, ''),
+      rNo0x,
+      sNo0x,
       signature.v,
       rawHashHex,
-      callDataArray,
+      callDataArray
     ]);
 
     return {
       ...signature,
-      rawTransaction: '0x' + Buffer.from(fullPayload).toString('hex'),
+      rawTransaction: '0x' + Buffer.from(fullPayload).toString('hex')
     };
   }
 
