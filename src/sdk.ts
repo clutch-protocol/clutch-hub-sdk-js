@@ -97,11 +97,7 @@ export class ClutchHubSdk {
           dropoffLatitude: $dropoffLatitude,
           dropoffLongitude: $dropoffLongitude,
           fare: $fare
-        ) {
-          data
-          from
-          nonce
-        }
+        )
       }
     `;
     const variables = {
