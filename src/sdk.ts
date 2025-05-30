@@ -1,53 +1,64 @@
-import axios from 'axios';
+import axios, { AxiosInstance } from 'axios';
 import { Buffer } from 'buffer';
-declare global {
-  interface Window { Buffer: typeof Buffer }
-}
-if (typeof window !== 'undefined' && !window.Buffer) window.Buffer = Buffer;
 import { keccak_256 } from '@noble/hashes/sha3';
 import * as rlp from 'rlp';
 import * as secp from '@noble/secp256k1';
-import { RideRequestArgs, SignedTx, Signature } from './types';
+import { RideRequestArgs, Signature } from './types';
 
-// Move utility functions to a separate section or file
-const utils = {
-  toHex: (uint8: Uint8Array): string => {
-    return Array.from(uint8)
-      .map(b => b.toString(16).padStart(2, '0'))
-      .join('');
-  },
+// Expose Buffer to browser contexts
+declare global {
+  interface Window { Buffer: typeof Buffer }
+}
+if (typeof window !== 'undefined' && !window.Buffer) {
+  window.Buffer = Buffer;
+}
 
-  ensure0x: (str: string): string => {
-    return str.startsWith('0x') ? str : '0x' + str;
-  },
+/**
+ * Represents an unsigned transaction returned by the GraphQL API.
+ */
+export interface UnsignedTransaction {
+  data: any;
+  from: string;
+  nonce: number;
+}
 
-  float64ToBits: (value: number): string => {
-    const buffer = new ArrayBuffer(8);
-    const view = new DataView(buffer);
-    view.setFloat64(0, value, false);
-    const highBits = view.getUint32(0, false);
-    const lowBits = view.getUint32(4, false);
-    const highHex = highBits.toString(16).padStart(8, '0');
-    const lowHex = lowBits.toString(16).padStart(8, '0');
-    return highHex + lowHex;
-  }
-};
-
+/**
+ * SDK for interacting with the Clutch Hub API and signing transactions.
+ */
 export class ClutchHubSdk {
-  private apiUrl: string;
+  private apiClient: AxiosInstance;
   private publicKey: string;
   private token: string | null = null;
   private tokenExpireTime: number = 0;
 
   constructor(apiUrl: string, publicKey: string) {
-    this.apiUrl = apiUrl;
+    this.apiClient = axios.create({ baseURL: apiUrl });
     this.publicKey = publicKey;
   }
 
-  private async ensureAuth() {
+  private get authHeaders(): Record<string, string> {
+    return this.token ? { Authorization: `Bearer ${this.token}` } : {};
+  }
+
+  private async executeGraphQL<T>(query: string, variables: any): Promise<T> {
+    const response = await this.apiClient.post(
+      '/graphql',
+      { query, variables },
+      { headers: this.authHeaders }
+    );
+    if (response.data.errors) {
+      throw new Error(response.data.errors.map((e: any) => e.message).join('\n'));
+    }
+    if (!response.data.data) {
+      throw new Error('No data returned from GraphQL.');
+    }
+    return response.data.data as T;
+  }
+
+  private async ensureAuth(): Promise<void> {
     const now = Date.now();
-    if (!this.token || now > this.tokenExpireTime) {
-      const mutation = `
+    if (!this.token || now >= this.tokenExpireTime) {
+      const query = `
         mutation GenerateToken($publicKey: String!) {
           generateToken(publicKey: $publicKey) {
             token
@@ -55,212 +66,167 @@ export class ClutchHubSdk {
           }
         }
       `;
-      const resp = await axios.post(
-        `${this.apiUrl}/graphql`,
-        { query: mutation, variables: { publicKey: this.publicKey } }
-      );
-      if (resp.data.errors) throw new Error(resp.data.errors.map((e: { message: string }) => e.message).join('\n'));
-      const { token, expiresAt } = resp.data.data.generateToken;
-      this.token = token;
-      this.tokenExpireTime = expiresAt * 1000;
+      const data = await this.executeGraphQL<{
+        generateToken: { token: string; expiresAt: number }
+      }>(query, { publicKey: this.publicKey });
+      this.token = data.generateToken.token;
+      this.tokenExpireTime = data.generateToken.expiresAt * 1000;
     }
   }
 
   /**
-   * Fetches the unsigned ride request payload from the GraphQL API.
+   * Fetches an unsigned ride request transaction from the GraphQL API.
    */
-  async createUnsignedRideRequest(args: RideRequestArgs): Promise<any> {
+  public async createUnsignedRideRequest(
+    args: RideRequestArgs
+  ): Promise<UnsignedTransaction> {
     await this.ensureAuth();
-    const mutation = `
-      mutation CreateUnsignedRideRequest($pickupLatitude: Float!, $pickupLongitude: Float!, $dropoffLatitude: Float!, $dropoffLongitude: Float!, $fare: Int!) {
+    const pickupLat = (args.pickup as any).latitude ?? (args.pickup as any).lat;
+    const pickupLng = (args.pickup as any).longitude ?? (args.pickup as any).lng;
+    const dropoffLat = (args.dropoff as any).latitude ?? (args.dropoff as any).lat;
+    const dropoffLng = (args.dropoff as any).longitude ?? (args.dropoff as any).lng;
+
+    const query = `
+      mutation CreateUnsignedRideRequest(
+        $pickupLatitude: Float!, $pickupLongitude: Float!,
+        $dropoffLatitude: Float!, $dropoffLongitude: Float!, $fare: Int!
+      ) {
         createUnsignedRideRequest(
           pickupLatitude: $pickupLatitude,
           pickupLongitude: $pickupLongitude,
           dropoffLatitude: $dropoffLatitude,
           dropoffLongitude: $dropoffLongitude,
           fare: $fare
-        )
+        ) {
+          data
+          from
+          nonce
+        }
       }
     `;
-    const pickup = {
-      latitude: (args.pickup as any).latitude ?? (args.pickup as any).lat,
-      longitude: (args.pickup as any).longitude ?? (args.pickup as any).lng,
-    };
-    const dropoff = {
-      latitude: (args.dropoff as any).latitude ?? (args.dropoff as any).lat,
-      longitude: (args.dropoff as any).longitude ?? (args.dropoff as any).lng,
-    };
     const variables = {
-      pickupLatitude: pickup.latitude,
-      pickupLongitude: pickup.longitude,
-      dropoffLatitude: dropoff.latitude,
-      dropoffLongitude: dropoff.longitude,
+      pickupLatitude: pickupLat,
+      pickupLongitude: pickupLng,
+      dropoffLatitude: dropoffLat,
+      dropoffLongitude: dropoffLng,
       fare: args.fare,
     };
-    const resp = await axios.post(
-      `${this.apiUrl}/graphql`,
-      { query: mutation, variables },
-      { headers: { Authorization: `Bearer ${this.token}` } }
-    );
-
-    if (resp.data.errors) {
-      console.error('GraphQL errors:', resp.data.errors);
-      throw new Error(resp.data.errors.map((e: { message: string }) => e.message).join('\n'));
-    }
-    if (!resp.data.data || !resp.data.data.createUnsignedRideRequest) {
-      throw new Error('No data returned from createUnsignedRideRequest');
-    }
-    return resp.data.data.createUnsignedRideRequest;
+    const result = await this.executeGraphQL<{
+      createUnsignedRideRequest: UnsignedTransaction
+    }>(query, variables);
+    return result.createUnsignedRideRequest;
   }
 
-  // Helper: Convert JavaScript float64 to a big-endian uint64 value for RLP encoding
-  private float64ToUint64(value: number): bigint {
-    // Use DataView to get the raw bits
-    const buffer = new ArrayBuffer(8);
-    const view = new DataView(buffer);
-    view.setFloat64(0, value, false); // false = big-endian
-    
-    // Combine the bits into a single BigInt value
-    const highBits = BigInt(view.getUint32(0, false));
-    const lowBits = BigInt(view.getUint32(4, false));
-    
-    // Shift high bits and combine with low bits - using BigInt constructor for compatibility
-    return (highBits << BigInt(32)) | lowBits;
-  }
+  /**
+   * Signs a transaction and returns the signature and raw RLP-encoded payload.
+   */
+  public async signTransaction(
+    unsignedTx: UnsignedTransaction,
+    privateKey: string
+  ): Promise<Signature & { rawTransaction: string }> {
+    // Encode function call
+    const callData = this.encodeFunctionCall(unsignedTx.data);
+    const fromNoPrefix = unsignedTx.from.replace(/^0x/, '');
 
-  // Helper: RLP-encode the FunctionCall according to Rust definitions
-  private encodeFunctionCall(data: any): Buffer {
-    const type = data.function_call_type || data.type;
-
-    switch (type) {
-      case 'RideRequest': {
-        const args = data.arguments || data;
-        const { pickup_location, dropoff_location, fare } = args;
-        if (!pickup_location || !dropoff_location || fare === undefined) {
-          throw new Error('Invalid RideRequest arguments: Missing required fields.');
-        }
-
-        // Convert floats to u64 bits exactly as Rust does
-        const pickupLatBits = this.float64ToUint64(pickup_location.latitude);
-        const pickupLongBits = this.float64ToUint64(pickup_location.longitude);
-        const dropoffLatBits = this.float64ToUint64(dropoff_location.latitude);
-        const dropoffLongBits = this.float64ToUint64(dropoff_location.longitude);
-
-        // Create the same structure as Rust: coordinates are [lat_bits, long_bits]
-        const pickupCoordinates = [pickupLatBits, pickupLongBits];
-        const dropoffCoordinates = [dropoffLatBits, dropoffLongBits];
-        const rideRequestArgs = [pickupCoordinates, dropoffCoordinates, fare];
-
-        // Encode with tag 1 for RideRequest
-        return Buffer.from(rlp.encode([1, rideRequestArgs]));
-      }
-      // TODO: handle other function_call types here
-      default:
-        throw new Error(`Unsupported FunctionCall type for RLP encoding: ${type}`);
-    }
-  }
-
-  async signTransaction(unsignedTx: { from: string, nonce: number, data: any }, privateKey: string): Promise<Signature & { rawTransaction: string }> {
-    // 1. RLP-encode the data field
-    const callDataRlp = this.encodeFunctionCall(unsignedTx.data);
-
-    // 2. RLP-encode the unsigned transaction for hashing: [from, nonce, callDataRlp]
-    const fromNoPrefix = unsignedTx.from.startsWith('0x') ? unsignedTx.from.slice(2) : unsignedTx.from;
-    
-    const data = [
+    // RLP-encode unsigned payload and hash
+    const unsignedPayload = rlp.encode([
       fromNoPrefix,
       unsignedTx.nonce,
-      callDataRlp,
-    ];
+      callData,
+    ]);
+    const hashBytes = keccak_256(unsignedPayload);
+    const rawHashHex = Buffer.from(hashBytes).toString('hex');
 
-    const unsignedRlp = rlp.encode(data);
-    const hashBytes = keccak_256(unsignedRlp);
+    // Sign hash
+    const signature = await this.signHash(rawHashHex, privateKey);
 
-    // Hash without '0x' prefix for consistency with Rust
-    const rawHash = Buffer.from(hashBytes).toString('hex');
-    
-    // 3. Sign the hash
-    const sig = await secp.signAsync(hashBytes, privateKey);
-
-    // 4. RLP-encode the full transaction
-    // Format signature components correctly
-    const r = sig.r.toString(16).padStart(64, '0');
-    const s = sig.s.toString(16).padStart(64, '0');
-    const v = (typeof sig.recovery === 'number' ? sig.recovery : 0) + 27;
-    const hash = rawHash; // No '0x' prefix in RLP
-    
-    // Construct TX for RLP encoding - must match Rust Transaction encoding
-    // Rust order is: [from, nonce, signature_r, signature_s, signature_v, hash, data]
-    const tx = [
+    // RLP-encode full transaction
+    const fullPayload = rlp.encode([
       fromNoPrefix,
       unsignedTx.nonce,
-      r,
-      s,
-      v,
-      hash,
-      // Important: callDataRlp is already RLP encoded, but it's a Buffer
-      // We need to pass the raw bytes, not wrapped in another RLP encoding
-      [...callDataRlp]  // Convert Buffer to array so rlp.encode treats it properly
-    ];
-    
-    const signedRlp = rlp.encode(tx);
+      signature.r.replace(/^0x/, ''),
+      signature.s.replace(/^0x/, ''),
+      signature.v,
+      rawHashHex,
+      [...callData],
+    ]);
 
-    // For return values, use '0x' prefix as expected by consumers
-    const rawTransaction = '0x' + Buffer.from(signedRlp).toString('hex');
-    return { 
-      r: utils.ensure0x(r), 
-      s: utils.ensure0x(s), 
-      v, 
-      rawTransaction 
+    return {
+      ...signature,
+      rawTransaction: '0x' + Buffer.from(fullPayload).toString('hex'),
     };
   }
 
-  async submitTransaction(tx: SignedTx): Promise<any> {
+  /**
+   * Submits a signed raw transaction to the network.
+   */
+  public async submitTransaction(
+    rawTransaction: string
+  ): Promise<string> {
     await this.ensureAuth();
-    
-    // Convert the raw transaction to hex string if it's not already
-    const rawTxHex = typeof tx.payload === 'string' 
-      ? tx.payload 
-      : ('0x' + Buffer.from(tx.payload).toString('hex'));
-    
-    // Send to the GraphQL mutation for send_raw_transaction
-    const mutation = `
+    const query = `
       mutation SendRawTransaction($raw_transaction: String!) {
         sendRawTransaction(rawTransaction: $raw_transaction)
       }
     `;
-    
-    const resp = await axios.post(
-      `${this.apiUrl}/graphql`,
-      { 
-        query: mutation, 
-        variables: { raw_transaction: rawTxHex } 
-      },
-      { headers: { Authorization: `Bearer ${this.token}` } }
-    );
-
-    if (resp.data.errors) {
-      console.error('GraphQL errors:', resp.data.errors);
-      throw new Error(resp.data.errors.map((e: { message: string }) => e.message).join('\n'));
-    }
-    
-    return resp.data.data.send_raw_transaction;
+    const result = await this.executeGraphQL<{
+      sendRawTransaction: string;
+    }>(query, { raw_transaction: rawTransaction });
+    return result.sendRawTransaction;
   }
 
-  // Standardize error handling in API calls
-  private async handleApiCall<T>(query: string, variables: any, headers?: any): Promise<T> {
-    try {
-      const resp = await axios.post(`${this.apiUrl}/graphql`, { query, variables }, { headers });
-      if (resp.data.errors) {
-        throw new Error(resp.data.errors.map((e: { message: string }) => e.message).join('\n'));
+  /**
+   * Signs a hex-encoded hash.
+   */
+  private async signHash(
+    hashHex: string,
+    privateKey: string
+  ): Promise<Signature> {
+    const hashBuffer = Buffer.from(hashHex.replace(/^0x/, ''), 'hex');
+    const sig = await secp.signAsync(hashBuffer, privateKey);
+    const r = sig.r.toString(16).padStart(64, '0');
+    const s = sig.s.toString(16).padStart(64, '0');
+    const v = (typeof sig.recovery === 'number' ? sig.recovery : 0) + 27;
+    return {
+      r: '0x' + r,
+      s: '0x' + s,
+      v,
+    };
+  }
+
+  /**
+   * RLP-encodes a function call according to Rust definitions.
+   */
+  private encodeFunctionCall(data: any): Buffer {
+    const type = data.function_call_type || data.type;
+    switch (type) {
+      case 'RideRequest': {
+        const { pickup_location, dropoff_location, fare } = data.arguments || data;
+        const pickupLatBits = this.float64ToUint64(pickup_location.latitude);
+        const pickupLngBits = this.float64ToUint64(pickup_location.longitude);
+        const dropoffLatBits = this.float64ToUint64(dropoff_location.latitude);
+        const dropoffLngBits = this.float64ToUint64(dropoff_location.longitude);
+        const args = [
+          [pickupLatBits, pickupLngBits],
+          [dropoffLatBits, dropoffLngBits],
+          fare,
+        ];
+        return Buffer.from(rlp.encode([1, args]));
       }
-      if (!resp.data.data) {
-        throw new Error('No data returned from the API.');
-      }
-      return resp.data.data;
-    } catch (error) {
-      console.error('API call failed:', error);
-      throw error;
+      default:
+        throw new Error(`Unsupported FunctionCall type: ${type}`);
     }
+  }
+
+  /**
+   * Converts a JavaScript number to uint64 bits as BigInt.
+   */
+  private float64ToUint64(value: number): bigint {
+    const buffer = new ArrayBuffer(8);
+    const view = new DataView(buffer);
+    view.setFloat64(0, value, false);
+    const high = BigInt(view.getUint32(0, false));
+    const low = BigInt(view.getUint32(4, false));
+    return (high << BigInt(32)) | low;
   }
 } 
