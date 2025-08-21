@@ -1,5 +1,13 @@
 # clutch-hub-sdk-js
 
+![Alpha](https://img.shields.io/badge/status-alpha-orange.svg)
+![Experimental](https://img.shields.io/badge/stage-experimental-red.svg)
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=flat&logo=typescript&logoColor=white)
+![npm](https://img.shields.io/badge/npm-CB3837?style=flat&logo=npm&logoColor=white)
+
+> ⚠️ **ALPHA SOFTWARE** - This project is in active development and is considered experimental. Use at your own risk. APIs may change without notice.
+
 JavaScript SDK for interacting with the clutch-hub-api
 
 ## Overview
