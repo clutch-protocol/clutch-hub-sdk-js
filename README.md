@@ -10,6 +10,8 @@
 
 JavaScript SDK for interacting with the clutch-hub-api
 
+**Created and maintained by [Mehran Mazhar](https://github.com/MehranMazhar)**
+
 ## Overview
 
 `clutch-hub-sdk-js` is a JavaScript/TypeScript SDK for building decentralized applications (dApps) that interact with the [clutch-hub-api](https://github.com/your-org/clutch-hub-api) and the Clutch custom blockchain. This SDK helps you:
@@ -61,6 +63,13 @@ console.log('Transaction receipt:', receipt);
 
 ## Security Note
 **Never share or expose your private key.** The SDK is designed for client-side signing only. For best security, integrate with browser wallets, hardware wallets, or secure mobile keystores.
+
+## Author & Maintainer
+
+**Mehran Mazhar**
+- GitHub: [@MehranMazhar](https://github.com/MehranMazhar)
+- Website: [MehranMazhar.com](https://MehranMazhar.com)
+- Email: mehran.mazhar@gmail.com
 
 ## License
 MIT
