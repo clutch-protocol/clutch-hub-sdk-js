@@ -1,5 +1,8 @@
 export {};
 
+/**
+ * Represents geographical coordinates for location-based operations.
+ */
 export interface Coordinates {
   latitude: number;
   longitude: number;
