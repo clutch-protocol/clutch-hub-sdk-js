@@ -31,6 +31,12 @@ JavaScript SDK for interacting with the clutch-hub-api
 npm install clutch-hub-sdk-js
 ```
 
+### Latest Version
+You can also install the latest canary version for cutting-edge features:
+```bash
+npm install clutch-hub-sdk-js@canary
+```
+
 ## Basic Usage
 ```js
 import { ClutchHubSdk } from 'clutch-hub-sdk-js';
