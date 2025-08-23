@@ -33,7 +33,6 @@
     "rlp": "^2.2.7"
   },
   "devDependencies": {
-    "@types/axios": "^0.14.4",
     "typescript": "^5.0.0",
     "semantic-release": "^22.0.0",
     "@semantic-release/changelog": "^6.0.0",
