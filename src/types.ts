@@ -27,4 +27,14 @@ export interface SignedTx {
   r: string;
   s: string;
   v: number;
+}
+
+/**
+ * Transaction status enumeration for tracking transaction states.
+ */
+export enum TransactionStatus {
+  PENDING = 'pending',
+  CONFIRMED = 'confirmed',
+  FAILED = 'failed',
+  CANCELLED = 'cancelled'
 } 
