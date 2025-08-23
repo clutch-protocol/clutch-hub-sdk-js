@@ -1,0 +1,155 @@
+name: Publish to NPM
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+
+env:
+  NODE_VERSION: '20'
+  NPM_CONFIG_PROVENANCE: true
+
+jobs:
+  publish-canary:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # Required for npm provenance
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Need full history for short SHA
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: 'https://registry.npmjs.org'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build package
+        run: npm run build
+
+      - name: Generate canary version
+        id: canary-version
+        run: |
+          BASE_VERSION=$(node -p "require('./package.json').version")
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          CANARY_VERSION="${BASE_VERSION}-canary.${SHORT_SHA}"
+          echo "version=${CANARY_VERSION}" >> $GITHUB_OUTPUT
+          echo "Generated canary version: ${CANARY_VERSION}"
+
+      - name: Update package.json version
+        run: |
+          npm version ${{ steps.canary-version.outputs.version }} --no-git-tag-version
+          echo "Updated package.json to version: ${{ steps.canary-version.outputs.version }}"
+
+      - name: Publish canary to NPM
+        run: npm publish --tag canary --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Output canary version
+        run: |
+          echo "🚀 Published canary version: ${{ steps.canary-version.outputs.version }}"
+          echo "📦 Install with: npm install $(node -p "require('./package.json').name")@canary"
+
+  publish-stable:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # Required for npm provenance
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: 'https://registry.npmjs.org'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build package
+        run: npm run build
+
+      - name: Extract version from tag
+        id: extract-version
+        run: |
+          TAG_VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=${TAG_VERSION}" >> $GITHUB_OUTPUT
+          echo "Extracted version from tag: ${TAG_VERSION}"
+
+      - name: Validate version matches package.json
+        run: |
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          TAG_VERSION=${{ steps.extract-version.outputs.version }}
+          if [ "${PACKAGE_VERSION}" != "${TAG_VERSION}" ]; then
+            echo "❌ Version mismatch!"
+            echo "   package.json: ${PACKAGE_VERSION}"
+            echo "   Git tag:      v${TAG_VERSION}"
+            echo "   Please ensure package.json version matches the git tag (without 'v' prefix)"
+            exit 1
+          fi
+          echo "✅ Version validation passed: ${TAG_VERSION}"
+
+      - name: Publish stable to NPM
+        run: npm publish --tag latest --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Output stable version
+        run: |
+          echo "🎉 Published stable version: ${{ steps.extract-version.outputs.version }}"
+          echo "📦 Install with: npm install $(node -p "require('./package.json').name")"
+          echo "📦 Or install latest: npm install $(node -p "require('./package.json').name")@latest"
+
+  # Optional: Create a summary of what was published
+  publish-summary:
+    if: always() && (needs.publish-canary.result != 'skipped' || needs.publish-stable.result != 'skipped')
+    needs: [publish-canary, publish-stable]
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create publish summary
+        run: |
+          echo "## 📦 NPM Publish Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          PACKAGE_NAME=$(node -p "require('./package.json').name")
+          
+          if [ "${{ needs.publish-canary.result }}" == "success" ]; then
+            echo "### 🧪 Canary Release Published" >> $GITHUB_STEP_SUMMARY
+            echo "- **Package**: \`${PACKAGE_NAME}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Tag**: \`canary\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Install**: \`npm install ${PACKAGE_NAME}@canary\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ "${{ needs.publish-stable.result }}" == "success" ]; then
+            echo "### 🎉 Stable Release Published" >> $GITHUB_STEP_SUMMARY
+            echo "- **Package**: \`${PACKAGE_NAME}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Tag**: \`latest\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Install**: \`npm install ${PACKAGE_NAME}\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "### 📋 Links" >> $GITHUB_STEP_SUMMARY
+          echo "- [NPM Package](https://www.npmjs.com/package/${PACKAGE_NAME})" >> $GITHUB_STEP_SUMMARY
+          echo "- [Repository](https://github.com/${{ github.repository }})" >> $GITHUB_STEP_SUMMARY
