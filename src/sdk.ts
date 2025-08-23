@@ -58,7 +58,9 @@ export class ClutchHubSdk {
 
   private async ensureAuth(): Promise<void> {
     const now = Date.now();
-    if (!this.token || now >= this.tokenExpireTime) {
+    // Add buffer time to prevent race conditions near token expiration
+    const bufferTime = 30000; // 30 seconds
+    if (!this.token || now >= (this.tokenExpireTime - bufferTime)) {
       const query = `
         mutation GenerateToken($publicKey: String!) {
           generateToken(publicKey: $publicKey) {
