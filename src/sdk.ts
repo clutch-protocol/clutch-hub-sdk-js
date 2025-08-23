@@ -37,6 +37,24 @@ export class ClutchHubSdk {
     this.publicKey = publicKey;
   }
 
+  /**
+   * Get the current public key associated with this SDK instance.
+   * @returns The public key string
+   */
+  public getPublicKey(): string {
+    return this.publicKey;
+  }
+
+  /**
+   * Check if the SDK is currently authenticated.
+   * @returns True if authenticated and token is not expired
+   */
+  public isAuthenticated(): boolean {
+    const now = Date.now();
+    const bufferTime = 30000; // 30 seconds
+    return !!(this.token && now < (this.tokenExpireTime - bufferTime));
+  }
+
   private get authHeaders(): Record<string, string> {
     return this.token ? { Authorization: `Bearer ${this.token}` } : {};
   }
