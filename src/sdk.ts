@@ -243,13 +243,15 @@ export class ClutchHubSdk {
 
   /**
    * Converts a JavaScript number to uint64 bits as BigInt.
+   * Uses cached ArrayBuffer and DataView for better performance.
    */
+  private static readonly floatBuffer = new ArrayBuffer(8);
+  private static readonly floatView = new DataView(ClutchHubSdk.floatBuffer);
+  
   private float64ToUint64(value: number): bigint {
-    const buffer = new ArrayBuffer(8);
-    const view = new DataView(buffer);
-    view.setFloat64(0, value, false);
-    const high = BigInt(view.getUint32(0, false));
-    const low = BigInt(view.getUint32(4, false));
+    ClutchHubSdk.floatView.setFloat64(0, value, false);
+    const high = BigInt(ClutchHubSdk.floatView.getUint32(0, false));
+    const low = BigInt(ClutchHubSdk.floatView.getUint32(4, false));
     return (high << BigInt(32)) | low;
   }
 } 
