@@ -24,6 +24,7 @@ export interface UnsignedTransaction {
 
 /**
  * SDK for interacting with the Clutch Hub API and signing transactions.
+ * Provides client-side transaction signing and blockchain interaction capabilities.
  */
 export class ClutchHubSdk {
   private apiClient: AxiosInstance;
