@@ -64,6 +64,42 @@ console.log('Transaction receipt:', receipt);
 ## Security Note
 **Never share or expose your private key.** The SDK is designed for client-side signing only. For best security, integrate with browser wallets, hardware wallets, or secure mobile keystores.
 
+## Development & Releases
+
+This project uses [semantic-release](https://semantic-release.gitbook.io/) for automated versioning and publishing.
+
+### Commit Message Format
+
+Use [Conventional Commits](https://conventionalcommits.org/) for automatic version bumping:
+
+```bash
+# Patch release (0.1.0 → 0.1.1)
+git commit -m "fix: resolve memory leak in transaction processing"
+
+# Minor release (0.1.0 → 0.2.0)  
+git commit -m "feat: add ride cancellation functionality"
+
+# Major release (0.1.0 → 1.0.0)
+git commit -m "feat!: change API signature for ClutchHubSdk constructor"
+
+# No release
+git commit -m "docs: update README with new examples"
+git commit -m "chore: update dependencies"
+```
+
+### Release Process
+
+1. **Automatic Releases**: Merge commits to `main` with conventional commit messages
+2. **Canary Releases**: Non-conventional commits create canary versions (`0.1.0-canary.abc1234`)
+3. **Manual Releases**: Push git tags (`v1.0.0`) for manual version control
+
+### Commit Message Template
+
+Set up the commit message template:
+```bash
+git config commit.template .gitmessage
+```
+
 ## Author & Maintainer
 
 **Mehran Mazhar**
